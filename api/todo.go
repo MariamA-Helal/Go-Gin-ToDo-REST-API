@@ -43,11 +43,6 @@ func GetTodoByID(c *gin.Context) {
 
 func CreatTodos(c *gin.Context) {
 
-	if err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
-		return
-	}
-
 	var newTodo todo
 
 	if err := c.BindJSON(&newTodo); err != nil {
