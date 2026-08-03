@@ -52,14 +52,14 @@ func ConnectDB() {
 
 	// Create a new connection to create database table
 	gormDNS := "host=localhost user=postgres password=0000 dbname=todo_gorm_db sslmode=disable"
-	db, err := gorm.Open(postgres.Open(gormDNS), &gorm.Config{})
+	DB, err = gorm.Open(postgres.Open(gormDNS), &gorm.Config{})
 
 	if err != nil {
 		log.Fatal("Failed to connect to the database:", err)
 	}
 	fmt.Println("Connected to 'todo_gorm_db' via GORM")
 
-	err = db.AutoMigrate(&models.Todo{})
+	err = DB.AutoMigrate(&models.Todo{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
