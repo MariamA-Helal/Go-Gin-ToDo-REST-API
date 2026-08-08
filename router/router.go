@@ -6,23 +6,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter() *gin.Engine {
+func SetupRouter(h *handler.TodoHandler) *gin.Engine {
 	router := gin.Default()
 
-	router.GET("/todos", handler.GetTodos)
-	router.GET("/todos/:id", handler.GetTodoByID)
-	router.GET("/todos/category/:category", handler.GetTodosByCategory)
-	router.GET("/todos/status/:status", handler.GetTodoByStatus)
-	router.GET("/todos/search", handler.GetTodosBySearch)
+	// 1. GET
+	router.GET("/todos", h.GetTodos)
+	router.GET("/todos/:id", h.GetTodoByID)
+	router.GET("/todos/category/:category", h.GetTodosByCategory)
+	router.GET("/todos/status/:status", h.GetTodosByStatus)
+	router.GET("/todos/search", h.GetTodosBySearch)
 
-	router.POST("/todos", handler.CreateTodo)
-	router.PUT("/todos/:id", handler.EditTodo)
-	router.PUT("/todos/category/:category", handler.UpdateTodosByCategory)
+	// 2. POST
+	router.POST("/todos", h.CreateTodo)
 
-	router.DELETE("/todos/:id", handler.DeleteTodo)
-	router.DELETE("/todos/", handler.DeleteAllTodo)
+	// 3. PUT
+	router.PUT("/todos/:id", h.EditTodo)
+	router.PUT("/todos/category/:category", h.UpdateTodosByCategory)
 
-	router.PATCH("/todos/:id/status", handler.UpdateTodoStatus)
+	// 4. PATCH
+	router.PATCH("/todos/:id/status", h.UpdateTodoStatus)
+
+	// 5. DELETE
+	router.DELETE("/todos/:id", h.DeleteTodo)
+	router.DELETE("/todos", h.DeleteAllTodos)
+	router.DELETE("/todos/category/:category", h.DeleteTodosByCategory)
 
 	return router
 }

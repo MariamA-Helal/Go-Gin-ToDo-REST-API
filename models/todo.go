@@ -9,6 +9,6 @@ type Todo struct {
 	Category    string     `json:"category" binding:"required"`
 	Priority    string     `json:"priority" binding:"required"`
 	CreatedAt   time.Time  `json:"created_at"`
-	CompletedAt *time.Time `json:"completed_at"`
-	DueDate     *time.Time `json:"due_date"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	DueDate     *time.Time `json:"due_date,omitempty"`
 }

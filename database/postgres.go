@@ -13,28 +13,25 @@ import (
 	"gorm.io/gorm"
 )
 
-var DB *gorm.DB
+func ConnectDB() *gorm.DB {
 
-func ConnectDB() {
-
-	// Database connection parameters
-	defualtDSN := "host=localhost user=postgres password=0000 dbname=todo_app sslmode=disable"
-	dbRaw, err := sql.Open("postgres", defualtDSN)
+	// 1. Connect to the default postgres database to check if our target database exists
+	defaultDSN := "host=localhost user=postgres password=0000 dbname=postgres sslmode=disable"
+	dbRaw, err := sql.Open("postgres", defaultDSN)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to connect to postgres server:", err)
 	}
 
 	var exist int
-	// Check if the database exists
-	//return 1 if it search the postgresql list of databases and find the database name, otherwise return err
-	err = dbRaw.QueryRow("Select 1 From pg_database Where datname = 'todo_gorm_db'").Scan(&exist)
+	// 2. Check if the database exists
+	err = dbRaw.QueryRow("SELECT 1 FROM pg_database WHERE datname = 'todo_gorm_db'").Scan(&exist)
 	if err != nil {
 		maxRepeat := 3
 		for i := 1; i <= maxRepeat; i++ {
-			_, err = dbRaw.Exec("Create Database todo_gorm_db")
+			_, err = dbRaw.Exec("CREATE DATABASE todo_gorm_db")
 
 			if err == nil {
-				fmt.Println("Database 'todo_gorm_db' created successfully on attempt", i)
+				fmt.Printf("Database 'todo_gorm_db' created successfully on attempt %d\n", i)
 				break
 			}
 			fmt.Printf("Attempt %d failed to create database: %v\n", i, err)
@@ -46,23 +43,26 @@ func ConnectDB() {
 			time.Sleep(2 * time.Second) // Wait for 2 seconds before retrying
 		}
 	} else {
-		fmt.Println("Database 'todo_gorm_db' is already exists.")
+		fmt.Println("Database 'todo_gorm_db' already exists.")
 	}
 	dbRaw.Close()
 
-	// Create a new connection to create database table
-	gormDNS := "host=localhost user=postgres password=0000 dbname=todo_gorm_db sslmode=disable"
-	DB, err = gorm.Open(postgres.Open(gormDNS), &gorm.Config{})
+	// 3. Create a new connection via GORM
+	gormDSN := "host=localhost user=postgres password=0000 dbname=todo_gorm_db sslmode=disable"
+	db, err := gorm.Open(postgres.Open(gormDSN), &gorm.Config{})
 
 	if err != nil {
-		log.Fatal("Failed to connect to the database:", err)
+		log.Fatal("Failed to connect to the database via GORM:", err)
 	}
 	fmt.Println("Connected to 'todo_gorm_db' via GORM")
 
-	err = DB.AutoMigrate(&models.Todo{})
+	// 4. AutoMigrate
+	err = db.AutoMigrate(&models.Todo{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
 	fmt.Println("Table Todos is auto-migrated successfully")
 
+	// 5. Return the database connection
+	return db
 }
