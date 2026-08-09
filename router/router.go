@@ -2,34 +2,63 @@ package router
 
 import (
 	"example/ToDo/handler"
+	"example/ToDo/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(h *handler.TodoHandler) *gin.Engine {
+func SetupRouter(h *handler.TodoHandler, authHandler *handler.AuthHandler) *gin.Engine {
 	router := gin.Default()
 
-	// 1. GET
-	router.GET("/todos", h.GetTodos)
-	router.GET("/todos/:id", h.GetTodoByID)
-	router.GET("/todos/category/:category", h.GetTodosByCategory)
-	router.GET("/todos/status/:status", h.GetTodosByStatus)
-	router.GET("/todos/search", h.GetTodosBySearch)
+	// Authentication routes
+	router.POST("/signup", authHandler.Signup)
+	router.POST("/login", authHandler.Login)
 
-	// 2. POST
-	router.POST("/todos", h.CreateTodo)
+	todos := router.Group("/todos")
+	todos.Use(middleware.RequireAuth())
+	{
+		todos := router.Group("/todos")
+		todos.Use(middleware.RequireAuth())
+		{
+			// 1. GET
+			todos.GET("", h.GetTodos)
+			todos.GET("/:id", h.GetTodoByID)
+			todos.GET("/category/:category", h.GetTodosByCategory)
+			todos.GET("/status/:status", h.GetTodosByStatus)
+			todos.GET("/search", h.GetTodosBySearch)
 
-	// 3. PUT
-	router.PUT("/todos/:id", h.EditTodo)
-	router.PUT("/todos/category/:category", h.UpdateTodosByCategory)
+			// 2. POST
+			todos.POST("", h.CreateTodo)
 
-	// 4. PATCH
-	router.PATCH("/todos/:id/status", h.UpdateTodoStatus)
+			// 3. PUT
+			todos.PUT("/:id", h.EditTodo)
+			todos.PUT("/category/:category", h.UpdateTodosByCategory)
 
-	// 5. DELETE
-	router.DELETE("/todos/:id", h.DeleteTodo)
-	router.DELETE("/todos", h.DeleteAllTodos)
-	router.DELETE("/todos/category/:category", h.DeleteTodosByCategory)
+			// 4. PATCH
+			todos.PATCH("/:id/status", h.UpdateTodoStatus)
+
+			// 5. DELETE
+			todos.DELETE("/:id", h.DeleteTodo)
+			todos.DELETE("", h.DeleteAllTodos)
+			todos.DELETE("/category/:category", h.DeleteTodosByCategory)
+
+			// 6. Admin
+			userUpgradeRoutes := router.Group("/user")
+			userUpgradeRoutes.Use(middleware.RequireAuth())
+			{
+				userUpgradeRoutes.POST("/request-upgrade", authHandler.RequestUpgrade)
+				userUpgradeRoutes.GET("/my-secret-key", authHandler.GetMySecretKey)
+				userUpgradeRoutes.POST("/upgrade", authHandler.UpgradeToAdmin)
+			}
+
+			// 7. Master
+			masterRoutes := router.Group("/master")
+			masterRoutes.Use(middleware.RequireAuth())
+			{
+				masterRoutes.PUT("/approve-upgrade/:id", authHandler.ApproveUpgrade)
+			}
+		}
+	}
 
 	return router
 }
