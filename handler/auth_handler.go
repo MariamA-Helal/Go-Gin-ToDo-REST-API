@@ -52,7 +52,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusCreated, gin.H{
-		"id":       user.UserID,
+		"id":       user.ID,
 		"username": user.Username,
 		"role":     user.Role,
 	})
