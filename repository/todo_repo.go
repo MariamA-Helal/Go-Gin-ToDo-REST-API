@@ -6,82 +6,98 @@ import (
 	"gorm.io/gorm"
 )
 
-// 1. Struct and Constructor
-type todoRepository struct {
-	db *gorm.DB
+// 1. Interface
+type TodoRepository interface {
+	GetTodos(limit int, offset int) []models.Todo
+	GetTodoByID(id int) (models.Todo, error)
+	GetTodosByCategory(category string) []models.Todo
+	GetTodosByStatus(status string) []models.Todo
+	GetTodosBySearch(query string) []models.Todo
+	CreateTodo(todo *models.Todo) error
+	EditTodo(todo *models.Todo) error
+	UpdateTodoStatus(todo *models.Todo) error
+	UpdateTodosByCategory(category string, updatedData map[string]interface{}) error
+	DeleteTodo(id int) error
+	DeleteAllTodos() error
+	DeleteTodosByCategory(category string) error
 }
 
-func NewTodoRepository(db *gorm.DB) *todoRepository {
-	return &todoRepository{db: db}
+// 2. Struct and Constructor
+type TodoRepositoryImpl struct {
+	DB *gorm.DB
+}
+
+func NewTodoRepository(db *gorm.DB) TodoRepository {
+	return &TodoRepositoryImpl{DB: db}
 }
 
 // ==========================================
-// 2. READ OPERATIONS
+// 3. READ OPERATIONS
 // ==========================================
 
-func (r *todoRepository) GetTodos(limit int, offset int) []models.Todo {
+func (r *TodoRepositoryImpl) GetTodos(limit int, offset int) []models.Todo {
 	var todos []models.Todo
-	r.db.Limit(limit).Offset(offset).Find(&todos)
+	r.DB.Limit(limit).Offset(offset).Find(&todos)
 	return todos
 }
 
-func (r *todoRepository) GetTodoByID(id int) (models.Todo, error) {
+func (r *TodoRepositoryImpl) GetTodoByID(id int) (models.Todo, error) {
 	var todo models.Todo
-	result := r.db.First(&todo, id)
+	result := r.DB.First(&todo, id)
 	return todo, result.Error
 }
 
-func (r *todoRepository) GetTodosByCategory(category string) []models.Todo {
+func (r *TodoRepositoryImpl) GetTodosByCategory(category string) []models.Todo {
 	var todos []models.Todo
-	r.db.Where("category = ?", category).Find(&todos)
+	r.DB.Where("category = ?", category).Find(&todos)
 	return todos
 }
 
-func (r *todoRepository) GetTodosByStatus(status string) []models.Todo {
+func (r *TodoRepositoryImpl) GetTodosByStatus(status string) []models.Todo {
 	var todos []models.Todo
 	completed := status == "true"
-	r.db.Where("completed = ?", completed).Find(&todos)
+	r.DB.Where("completed = ?", completed).Find(&todos)
 	return todos
 }
 
-func (r *todoRepository) GetTodosBySearch(query string) []models.Todo {
+func (r *TodoRepositoryImpl) GetTodosBySearch(query string) []models.Todo {
 	var todos []models.Todo
-	r.db.Where("title LIKE ?", "%"+query+"%").Find(&todos)
+	r.DB.Where("title LIKE ?", "%"+query+"%").Find(&todos)
 	return todos
 }
 
 // ==========================================
-// 3. CREATE & UPDATE OPERATIONS
+// 4. CREATE & UPDATE OPERATIONS
 // ==========================================
 
-func (r *todoRepository) CreateTodo(todo *models.Todo) error {
-	return r.db.Create(todo).Error
+func (r *TodoRepositoryImpl) CreateTodo(todo *models.Todo) error {
+	return r.DB.Create(todo).Error
 }
 
-func (r *todoRepository) EditTodo(todo *models.Todo) error {
-	return r.db.Save(todo).Error
+func (r *TodoRepositoryImpl) EditTodo(todo *models.Todo) error {
+	return r.DB.Save(todo).Error
 }
 
-func (r *todoRepository) UpdateTodoStatus(todo *models.Todo) error {
-	return r.db.Save(todo).Error
+func (r *TodoRepositoryImpl) UpdateTodoStatus(todo *models.Todo) error {
+	return r.DB.Save(todo).Error
 }
 
-func (r *todoRepository) UpdateTodosByCategory(category string, updatedData map[string]interface{}) error {
-	return r.db.Model(&models.Todo{}).Where("category = ?", category).Updates(updatedData).Error
+func (r *TodoRepositoryImpl) UpdateTodosByCategory(category string, updatedData map[string]interface{}) error {
+	return r.DB.Model(&models.Todo{}).Where("category = ?", category).Updates(updatedData).Error
 }
 
 // ==========================================
-// 4. DELETE OPERATIONS
+// 5. DELETE OPERATIONS
 // ==========================================
 
-func (r *todoRepository) DeleteTodo(id int) error {
-	return r.db.Delete(&models.Todo{}, id).Error
+func (r *TodoRepositoryImpl) DeleteTodo(id int) error {
+	return r.DB.Delete(&models.Todo{}, id).Error
 }
 
-func (r *todoRepository) DeleteAllTodos() error {
-	return r.db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Todo{}).Error
+func (r *TodoRepositoryImpl) DeleteAllTodos() error {
+	return r.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Todo{}).Error
 }
 
-func (r *todoRepository) DeleteTodosByCategory(category string) error {
-	return r.db.Where("category = ?", category).Delete(&models.Todo{}).Error
+func (r *TodoRepositoryImpl) DeleteTodosByCategory(category string) error {
+	return r.DB.Where("category = ?", category).Delete(&models.Todo{}).Error
 }
