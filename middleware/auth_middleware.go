@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,7 +36,8 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", uint(claims["id"].(float64)))
+		fmt.Println("DECODED USER ID FROM TOKEN:", claims["id"])
+		c.Set("user_id", uint(int(claims["id"].(float64))))
 		c.Set("username", claims["username"].(string))
 		c.Set("role", claims["role"].(string))
 

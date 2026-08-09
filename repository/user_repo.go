@@ -34,6 +34,7 @@ func (r *UserRepositoryImpl) GetUserByUsername(username string) (*models.User, e
 	if err != nil {
 		return nil, err
 	}
+
 	return &user, nil
 }
 

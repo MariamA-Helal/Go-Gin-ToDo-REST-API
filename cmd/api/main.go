@@ -5,20 +5,24 @@ import (
 	"example/ToDo/handler"
 	"example/ToDo/repository"
 	"example/ToDo/router"
+	"fmt"
 )
 
 func main() {
-	// 1. Database connection
+	// 1. Seeding the database and connecting to it
 	db := database.ConnectDB()
 
-	// 2. Dependency Injection Setup
-	realRepo := repository.NewTodoRepository(db)
+	// 2. Repositories
+	todoRepo := repository.NewTodoRepository(db)
+	userRepo := repository.NewUserRepository(db) // الـ Repo الجديد
 
-	todoHandler := handler.NewTodoHandler(realRepo)
+	// 3. Identify New Handlers
+	todoHandler := handler.NewTodoHandler(todoRepo)
+	authHandler := handler.NewAuthHandler(userRepo) // الـ Handler الجديد
 
-	// 3. Router setup
-	r := router.SetupRouter(todoHandler)
+	// 4. Handlers Setup
+	r := router.SetupRouter(todoHandler, authHandler)
 
-	// 4. Start the server
+	fmt.Println("Server is running on port 8080...")
 	r.Run(":8080")
 }

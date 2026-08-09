@@ -70,24 +70,32 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.Repo.GetUserByUsername(input.Username)
-	if err != nil {
-		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+	repoImpl, ok := h.Repo.(*repository.UserRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access repository"})
+		return
+	}
+
+	var user models.User
+	if err := repoImpl.DB.Where("username = ?", input.Username).Take(&user).Error; err != nil {
+		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 		return
 	}
 
 	if !utils.CheckPasswordHash(input.Password, user.Password) {
-		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 		return
 	}
 
-	token, err := utils.GenerateToken(user.UserID, user.Username, user.Role)
+	token, err := utils.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, gin.H{"token": token})
+	c.IndentedJSON(http.StatusOK, gin.H{
+		"token": token,
+	})
 }
 
 // 3. User requests an upgrade
@@ -116,11 +124,23 @@ func (h *AuthHandler) ApproveUpgrade(c *gin.Context) {
 
 // 5. User views their unique secret key (only visible if approved)
 func (h *AuthHandler) GetMySecretKey(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	repoImpl, _ := h.Repo.(*repository.UserRepositoryImpl)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	repoImpl, ok := h.Repo.(*repository.UserRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access repository"})
+		return
+	}
 
 	var user models.User
-	repoImpl.DB.First(&user, userID.(uint))
+	if err := repoImpl.DB.Where("id = ?", userID.(uint)).First(&user).Error; err != nil {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 
 	if user.UpgradeStatus != "approved" {
 		c.IndentedJSON(http.StatusForbidden, gin.H{"error": "Your upgrade request is either pending or not submitted"})
