@@ -23,6 +23,12 @@ func setupTestEngine(mockRepo *MockTodoRepository) *gin.Engine {
 	h := NewTodoHandler(mockRepo)
 	router := gin.Default()
 
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint(1))
+		c.Set("role", "admin")
+		c.Next()
+	})
+
 	// 1. GET
 	router.GET("/todos", h.GetTodos)
 	router.GET("/todos/:id", h.GetTodoByID)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"example/ToDo/models"
+	"example/ToDo/repository"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -27,38 +28,31 @@ func NewTodoHandler(repo TodoRepository) *TodoHandler {
 // ==========================================
 
 func (h *TodoHandler) GetTodos(c *gin.Context) {
-	pageStr := c.DefaultQuery("page", "1")
-	limitStr := c.DefaultQuery("limit", "10")
 
-	page, err1 := strconv.Atoi(pageStr)
-	limit, err2 := strconv.Atoi(limitStr)
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
 
-	if err1 != nil || page <= 0 {
-		page = 1
-	}
-	if err2 != nil || limit <= 0 {
-		limit = 10
-	}
+	limit, offset := 10, 0
 
-	if limit > 100 {
-		limit = 100
+	var todos []models.Todo
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
 	}
 
-	offset := (page - 1) * limit
+	if userRole.(string) == "admin" {
+		repoImpl.DB.Limit(limit).Offset(offset).Find(&todos)
+	} else {
+		repoImpl.DB.Where("user_id = ?", userID.(uint)).Limit(limit).Offset(offset).Find(&todos)
+	}
 
-	todos := h.Repo.GetTodos(limit, offset)
-
-	c.IndentedJSON(http.StatusOK, gin.H{
-		"page":  page,
-		"limit": limit,
-		"data":  todos,
-	})
+	c.IndentedJSON(http.StatusOK, todos)
 }
 
 func (h *TodoHandler) GetTodoByID(c *gin.Context) {
 	id := c.Param("id")
 	idInt, err := strconv.Atoi(id)
-
 	if err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
@@ -67,6 +61,13 @@ func (h *TodoHandler) GetTodoByID(c *gin.Context) {
 	todo, err := h.Repo.GetTodoByID(idInt)
 	if err != nil {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	if todo.UserID != userID.(uint) && userRole.(string) != "admin" {
+		c.IndentedJSON(http.StatusForbidden, gin.H{"error": "Forbidden: Not your todo"})
 		return
 	}
 
@@ -90,18 +91,51 @@ func (h *TodoHandler) GetTodosByCategory(c *gin.Context) {
 		return
 	}
 
-	todos := h.Repo.GetTodosByCategory(category)
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	var todos []models.Todo
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if userRole.(string) == "admin" {
+		repoImpl.DB.Where("category = ?", category).Find(&todos)
+	} else {
+		repoImpl.DB.Where("user_id = ? AND category = ?", userID.(uint), category).Find(&todos)
+	}
+
 	c.IndentedJSON(http.StatusOK, todos)
 }
 
 func (h *TodoHandler) GetTodosByStatus(c *gin.Context) {
-	status := c.Param("status")
-	if status != "true" && status != "false" {
+	statusStr := c.Param("status")
+	statusBool, err := strconv.ParseBool(statusStr)
+	if err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Status must be a boolean (true or false)"})
 		return
 	}
-	todos := h.Repo.GetTodosByStatus(status)
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	var todos []models.Todo
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if userRole.(string) == "admin" {
+		repoImpl.DB.Where("completed = ?", statusBool).Find(&todos)
+	} else {
+		repoImpl.DB.Where("user_id = ? AND completed = ?", userID.(uint), statusBool).Find(&todos)
+	}
+
 	c.IndentedJSON(http.StatusOK, todos)
+
 }
 
 func (h *TodoHandler) GetTodosBySearch(c *gin.Context) {
@@ -114,8 +148,26 @@ func (h *TodoHandler) GetTodosBySearch(c *gin.Context) {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Search query exceeds 10 words limit"})
 		return
 	}
-	todos := h.Repo.GetTodosBySearch(query)
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	var todos []models.Todo
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	searchQuery := "%" + query + "%"
+	if userRole.(string) == "admin" {
+		repoImpl.DB.Where("title ILIKE ? OR category ILIKE ?", searchQuery, searchQuery).Find(&todos)
+	} else {
+		repoImpl.DB.Where("user_id = ? AND (title ILIKE ? OR category ILIKE ?)", userID.(uint), searchQuery, searchQuery).Find(&todos)
+	}
+
 	c.IndentedJSON(http.StatusOK, todos)
+
 }
 
 // ==========================================
@@ -170,11 +222,14 @@ func (h *TodoHandler) CreateTodo(c *gin.Context) {
 		return
 	}
 
+	userID, _ := c.Get("user_id")
+
 	newTodo := models.Todo{
 		Title:    safeTitle,
 		Category: safeCategory,
 		Priority: req.Priority,
 		DueDate:  req.DueDate,
+		UserID:   userID.(uint),
 	}
 
 	err := h.Repo.CreateTodo(&newTodo)
@@ -212,6 +267,13 @@ func (h *TodoHandler) EditTodo(c *gin.Context) {
 	todoToUpdate, err := h.Repo.GetTodoByID(idInt)
 	if err != nil {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	if todoToUpdate.UserID != userID.(uint) && userRole.(string) != "admin" {
+		c.IndentedJSON(http.StatusForbidden, gin.H{"error": "You can only edit your own tasks"})
 		return
 	}
 
@@ -254,6 +316,13 @@ func (h *TodoHandler) UpdateTodoStatus(c *gin.Context) {
 		return
 	}
 
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	if todoToUpdate.UserID != userID.(uint) && userRole.(string) != "admin" {
+		c.IndentedJSON(http.StatusForbidden, gin.H{"error": "You can only edit your own tasks"})
+		return
+	}
+
 	if *status.Completed && !todoToUpdate.Completed {
 		now := time.Now().UTC()
 		todoToUpdate.CompletedAt = &now
@@ -270,15 +339,6 @@ func (h *TodoHandler) UpdateTodoStatus(c *gin.Context) {
 func (h *TodoHandler) UpdateTodosByCategory(c *gin.Context) {
 	category := c.Param("category")
 
-	if len(strings.TrimSpace(category)) <= 1 || len(strings.Fields(category)) > 3 {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid category format"})
-		return
-	}
-	if _, err := strconv.Atoi(category); err == nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Category cannot be only numbers"})
-		return
-	}
-
 	var updateData map[string]interface{}
 	if err := c.BindJSON(&updateData); err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid body"})
@@ -291,53 +351,6 @@ func (h *TodoHandler) UpdateTodosByCategory(c *gin.Context) {
 		return
 	}
 
-	if _, ok := val.(bool); !ok {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Completed must be a boolean"})
-		return
-	}
-
-	err := h.Repo.UpdateTodosByCategory(category, updateData)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Category not found"})
-			return
-		}
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal error"})
-		return
-	}
-
-	c.IndentedJSON(http.StatusOK, gin.H{"message": "Todos category updated"})
-}
-
-// ==========================================
-// DELETE METHODS
-// ==========================================
-
-func (h *TodoHandler) DeleteTodo(c *gin.Context) {
-	id := c.Param("id")
-	idInt, err := strconv.Atoi(id)
-	if err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
-		return
-	}
-
-	err = h.Repo.DeleteTodo(idInt)
-	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
-		return
-	}
-
-	c.IndentedJSON(http.StatusOK, gin.H{"message": "Todo deleted"})
-}
-
-func (h *TodoHandler) DeleteAllTodos(c *gin.Context) {
-	h.Repo.DeleteAllTodos()
-	c.IndentedJSON(http.StatusOK, gin.H{"message": "All todos deleted"})
-}
-
-func (h *TodoHandler) DeleteTodosByCategory(c *gin.Context) {
-	category := c.Param("category")
-
 	if len(strings.TrimSpace(category)) <= 1 || len(strings.Fields(category)) > 3 {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid category format"})
 		return
@@ -347,11 +360,121 @@ func (h *TodoHandler) DeleteTodosByCategory(c *gin.Context) {
 		return
 	}
 
-	err := h.Repo.DeleteTodosByCategory(category)
-	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
+	var tx *gorm.DB
+	if userRole.(string) == "admin" {
+		tx = repoImpl.DB.Model(&models.Todo{}).Where("category = ?", category).Update("completed", val)
+	} else {
+		tx = repoImpl.DB.Model(&models.Todo{}).Where("user_id = ? AND category = ?", userID.(uint), category).Update("completed", val)
+	}
+
+	if tx.Error != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, gin.H{"message": "Todos category updated"})
+}
+
+// ==========================================
+// DELETE METHODS
+// ==========================================
+func (h *TodoHandler) DeleteTodo(c *gin.Context) {
+	id := c.Param("id")
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+
+	todoToDelete, err := h.Repo.GetTodoByID(idInt)
+	if err != nil {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+	if todoToDelete.UserID != userID.(uint) && userRole.(string) != "admin" {
+		c.IndentedJSON(http.StatusForbidden, gin.H{"error": "Forbidden: You don't have permission to modify this todo"})
+		return
+	}
+
+	err = h.Repo.DeleteTodo(idInt)
+	if err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete todo"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, gin.H{"message": "Todo deleted"})
+}
+
+func (h *TodoHandler) DeleteAllTodos(c *gin.Context) {
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	var err error
+	if userRole.(string) == "admin" {
+		err = repoImpl.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Todo{}).Error
+	} else {
+		err = repoImpl.DB.Where("user_id = ?", userID.(uint)).Delete(&models.Todo{}).Error
+	}
+
+	if err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete todos"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, gin.H{"message": "Todos deleted successfully"})
+
+}
+
+func (h *TodoHandler) DeleteTodosByCategory(c *gin.Context) {
+	category := c.Param("category")
+
+	userID, _ := c.Get("user_id")
+	userRole, _ := c.Get("role")
+
+	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
+	if !ok {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	var tx *gorm.DB
+	if userRole.(string) == "admin" {
+		tx = repoImpl.DB.Where("category = ?", category).Delete(&models.Todo{})
+	} else {
+		tx = repoImpl.DB.Where("user_id = ? AND category = ?", userID.(uint), category).Delete(&models.Todo{})
+	}
+
+	if tx.Error != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
+		return
+	}
+
+	if len(strings.TrimSpace(category)) <= 1 || len(strings.Fields(category)) > 3 {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid category format"})
+		return
+	}
+	if _, err := strconv.Atoi(category); err == nil {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Category cannot be only numbers"})
+		return
+	}
 	c.IndentedJSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
 }
