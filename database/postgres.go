@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"example/ToDo/models"
+	"example/ToDo/utils"
 
 	_ "github.com/lib/pq"
 	"gorm.io/driver/postgres"
@@ -57,12 +58,33 @@ func ConnectDB() *gorm.DB {
 	fmt.Println("Connected to 'todo_gorm_db' via GORM")
 
 	// 4. AutoMigrate
-	err = db.AutoMigrate(&models.Todo{})
+	err = db.AutoMigrate(&models.User{}, &models.Todo{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
-	fmt.Println("Table Todos is auto-migrated successfully")
+	fmt.Println("Tables User and Todos are auto-migrated successfully")
+
+	SeedAdmin(db) // Seed the admin user if it doesn't exist
 
 	// 5. Return the database connection
 	return db
+}
+
+func SeedAdmin(db *gorm.DB) {
+	var count int64
+	db.Model(&models.User{}).Where("username = ?", "admin").Count(&count)
+
+	if count == 0 {
+
+		hashedPassword, _ := utils.HashPassword("admin123")
+		adminUser := models.User{
+			Username: "admin",
+			Password: hashedPassword,
+			Role:     "admin",
+		}
+		db.Create(&adminUser)
+		fmt.Println("Master Admin seeded successfully!")
+	} else {
+		fmt.Println("Master Admin already exists.")
+	}
 }
