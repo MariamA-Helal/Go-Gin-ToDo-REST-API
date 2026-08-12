@@ -13,13 +13,23 @@ type TodoRepository interface {
 	GetTodosByCategory(category string) []models.Todo
 	GetTodosByStatus(status string) []models.Todo
 	GetTodosBySearch(query string) []models.Todo
+
 	CreateTodo(todo *models.Todo) error
 	EditTodo(todo *models.Todo) error
 	UpdateTodoStatus(todo *models.Todo) error
-	UpdateTodosByCategory(category string, updatedData map[string]interface{}) error
+	UpdateTodosByCategory(userID uint, category string, completed bool) error
+
 	DeleteTodo(id int) error
 	DeleteAllTodos() error
 	DeleteTodosByCategory(category string) error
+
+	CountUserTodos(userID uint) int64
+	GetUserIDByUsername(username string) (uint, error)
+
+	DeleteUserTodos(userID uint) error
+	DeleteAllTodosGlobal() error
+	DeleteCategoryForUser(userID uint, category string) error
+	DeleteCategoryGlobal(category string) error
 }
 
 // 2. Struct and Constructor
@@ -82,8 +92,11 @@ func (r *TodoRepositoryImpl) UpdateTodoStatus(todo *models.Todo) error {
 	return r.DB.Save(todo).Error
 }
 
-func (r *TodoRepositoryImpl) UpdateTodosByCategory(category string, updatedData map[string]interface{}) error {
-	return r.DB.Model(&models.Todo{}).Where("category = ?", category).Updates(updatedData).Error
+func (r *TodoRepositoryImpl) UpdateTodosByCategory(userID uint, category string, completed bool) error {
+	tx := r.DB.Model(&models.Todo{}).
+		Where("user_id = ? AND category = ?", userID, category).
+		Update("completed", completed)
+	return tx.Error
 }
 
 // ==========================================
@@ -99,5 +112,32 @@ func (r *TodoRepositoryImpl) DeleteAllTodos() error {
 }
 
 func (r *TodoRepositoryImpl) DeleteTodosByCategory(category string) error {
+	return r.DB.Where("category = ?", category).Delete(&models.Todo{}).Error
+}
+
+func (r *TodoRepositoryImpl) CountUserTodos(userID uint) int64 {
+	var count int64
+	r.DB.Model(&models.Todo{}).Where("user_id = ?", userID).Count(&count)
+	return count
+}
+
+func (r *TodoRepositoryImpl) GetUserIDByUsername(username string) (uint, error) {
+	var user models.User
+	if err := r.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		return 0, err
+	}
+	return user.ID, nil
+}
+
+func (r *TodoRepositoryImpl) DeleteUserTodos(userID uint) error {
+	return r.DB.Where("user_id = ?", userID).Delete(&models.Todo{}).Error
+}
+func (r *TodoRepositoryImpl) DeleteAllTodosGlobal() error {
+	return r.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Todo{}).Error
+}
+func (r *TodoRepositoryImpl) DeleteCategoryForUser(userID uint, category string) error {
+	return r.DB.Where("user_id = ? AND category = ?", userID, category).Delete(&models.Todo{}).Error
+}
+func (r *TodoRepositoryImpl) DeleteCategoryGlobal(category string) error {
 	return r.DB.Where("category = ?", category).Delete(&models.Todo{}).Error
 }
