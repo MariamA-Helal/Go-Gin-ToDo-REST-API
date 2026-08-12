@@ -3,8 +3,10 @@ package models
 import "time"
 
 type Todo struct {
-	UserID      uint       `gorm:"primaryKey" json:"id"`
-	ID          uint       `gorm:"primaryKey" json:"id"`
+	ID          uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserTaskID  uint       `json:"user_task_id"`
+	UserID      uint       `json:"user_id"`
+	User        User       `gorm:"foreignKey:UserID" json:"-"` // json:"-" بتمنع ظهور بيانات اليوزر بالكامل جوه التاسك
 	Title       string     `gorm:"not null" json:"title" binding:"required"`
 	Completed   bool       `gorm:"default:false" json:"completed"`
 	Category    string     `json:"category" binding:"required"`
