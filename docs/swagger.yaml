@@ -1,0 +1,660 @@
+basePath: /
+definitions:
+  handler.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  handler.LoginInput:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  handler.SecretKeyInput:
+    properties:
+      secret_key:
+        type: string
+    required:
+    - secret_key
+    type: object
+  handler.TokenResponse:
+    properties:
+      token:
+        type: string
+    type: object
+  models.Todo:
+    properties:
+      category:
+        type: string
+      completed:
+        type: boolean
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      due_date:
+        type: string
+      id:
+        type: integer
+      priority:
+        type: string
+      title:
+        type: string
+    required:
+    - category
+    - priority
+    - title
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: A robust Todo REST API with JWT Auth and RBAC.
+  title: Todo Application API
+  version: "1.0"
+paths:
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns a JWT token
+      parameters:
+      - description: Login Credentials
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.TokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: User Login
+      tags:
+      - auth
+  /signup:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account with default 'user' role
+      parameters:
+      - description: Signup Credentials
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.TokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Register a new user
+      tags:
+      - auth
+  /todos:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes all todos for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete all todos
+      tags:
+      - todos
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of todos for the authenticated user
+      parameters:
+      - description: Pagination limit
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination page
+        in: query
+        name: page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Todo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get all todos
+      tags:
+      - todos
+    post:
+      consumes:
+      - application/json
+      description: Creates a new todo task for the authenticated user
+      parameters:
+      - description: Todo Data
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.Todo'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Todo'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new todo
+      tags:
+      - todos
+  /todos/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes a specific todo by its ID
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a todo
+      tags:
+      - todos
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a specific todo by its ID for the authenticated user
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Todo'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get todo by ID
+      tags:
+      - todos
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing todo's full details by its ID
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated Todo Data
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.Todo'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Edit a todo
+      tags:
+      - todos
+  /todos/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Partially updates the completion status of a specific todo by ID
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Status Update (e.g., {\
+        in: body
+        name: input
+        required: true
+        schema:
+          additionalProperties:
+            type: boolean
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a todo's status
+      tags:
+      - todos
+  /todos/category/{category}:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes all todos under a specific category for the authenticated
+        user
+      parameters:
+      - description: Todo Category
+        in: path
+        name: category
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete todos by category
+      tags:
+      - todos
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of todos filtered by a specific category for the
+        authenticated user
+      parameters:
+      - description: Todo Category
+        in: path
+        name: category
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Todo'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get todos by category
+      tags:
+      - todos
+    put:
+      consumes:
+      - application/json
+      description: Updates the completion status of all todos under a specific category
+      parameters:
+      - description: Todo Category
+        in: path
+        name: category
+        required: true
+        type: string
+      - description: Status Update (e.g., {\
+        in: body
+        name: input
+        required: true
+        schema:
+          additionalProperties:
+            type: boolean
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Bulk update status by category
+      tags:
+      - todos
+  /todos/search:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of todos matching the search query text
+      parameters:
+      - description: Search query text
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Todo'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Search todos by title
+      tags:
+      - todos
+  /todos/status/{status}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of todos filtered by their completion status (true/false)
+      parameters:
+      - description: Todo Status (true or false)
+        in: path
+        name: status
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Todo'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get todos by status
+      tags:
+      - todos
+  /upgrade/apply:
+    post:
+      consumes:
+      - application/json
+      description: Upgrades the authenticated user to admin role using their unique
+        secret key
+      parameters:
+      - description: Secret Key JSON
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/handler.SecretKeyInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.TokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Complete Upgrade to Admin
+      tags:
+      - auth
+  /upgrade/approve/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Approves a pending upgrade request for a specific user by their
+        ID
+      parameters:
+      - description: Target User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve Role Upgrade (Admin Only)
+      tags:
+      - auth
+  /upgrade/request:
+    post:
+      consumes:
+      - application/json
+      description: Submits a request to the Master Admin to upgrade the user's role
+        to admin
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Request Role Upgrade
+      tags:
+      - auth
+  /upgrade/secret-key:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the unique secret key for the authenticated user if their
+        upgrade is approved
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Upgrade Secret Key
+      tags:
+      - auth
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
