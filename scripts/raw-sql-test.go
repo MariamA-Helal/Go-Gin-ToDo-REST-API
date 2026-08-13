@@ -7,7 +7,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func main() {
+func raw() {
 	// Database connection parameters
 	connStr := "host=localhost user=postgres password=0000 dbname=todo_app sslmode=disable"
 
@@ -43,5 +43,8 @@ func main() {
 			log.Fatal(err)
 		}
 		log.Println(id, title, completed)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
 	}
 }

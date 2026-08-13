@@ -1,14 +1,21 @@
 package router
 
 import (
+	_ "example/ToDo/docs"
+
 	"example/ToDo/handler"
 	"example/ToDo/middleware"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SetupRouter(h *handler.TodoHandler, authHandler *handler.AuthHandler) *gin.Engine {
 	router := gin.Default()
+
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Authentication routes
 	router.POST("/signup", authHandler.Signup)
