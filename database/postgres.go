@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"example/ToDo/models"
@@ -15,9 +16,14 @@ import (
 )
 
 func ConnectDB() *gorm.DB {
+	host := getEnv("DB_HOST", "localhost")
+	user := getEnv("DB_USER", "postgres")
+	password := getEnv("DB_PASSWORD", "0000")
+	dbName := getEnv("DB_NAME", "todo_gorm_db")
+	port := getEnv("DB_PORT", "5432")
 
 	// 1. Connect to the default postgres database to check if our target database exists
-	defaultDSN := "host=localhost user=postgres password=0000 dbname=postgres sslmode=disable"
+	defaultDSN := fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s sslmode=disable", host, user, password, port)
 	dbRaw, err := sql.Open("postgres", defaultDSN)
 	if err != nil {
 		log.Fatal("Failed to connect to postgres server:", err)
@@ -25,37 +31,49 @@ func ConnectDB() *gorm.DB {
 
 	var exist int
 	// 2. Check if the database exists
-	err = dbRaw.QueryRow("SELECT 1 FROM pg_database WHERE datname = 'todo_gorm_db'").Scan(&exist)
+	checkQuery := fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'", dbName)
+	err = dbRaw.QueryRow(checkQuery).Scan(&exist)
 	if err != nil {
-		maxRepeat := 3
+		maxRepeat := 5
 		for i := 1; i <= maxRepeat; i++ {
-			_, err = dbRaw.Exec("CREATE DATABASE todo_gorm_db")
+			createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
+			_, err = dbRaw.Exec(createStmt)
 
 			if err == nil {
-				fmt.Printf("Database 'todo_gorm_db' created successfully on attempt %d\n", i)
+				fmt.Printf("Database '%s' created successfully on attempt %d\n", dbName, i)
 				break
 			}
 			fmt.Printf("Attempt %d failed to create database: %v\n", i, err)
 
 			if i == maxRepeat {
-				log.Fatal("Failed to create database after 3 attempts. Stopping the program.")
+				log.Fatal("Failed to create database after 5 attempts. Stopping the program.")
 			}
 
-			time.Sleep(2 * time.Second) // Wait for 2 seconds before retrying
+			time.Sleep(3 * time.Second) // Wait for 3 seconds before retrying
 		}
 	} else {
-		fmt.Println("Database 'todo_gorm_db' already exists.")
+		fmt.Printf("Database '%s' already exists.\n", dbName)
 	}
 	dbRaw.Close()
 
-	// 3. Create a new connection via GORM
-	gormDSN := "host=localhost user=postgres password=0000 dbname=todo_gorm_db sslmode=disable"
-	db, err := gorm.Open(postgres.Open(gormDSN), &gorm.Config{})
+	// 3. Create a new connection via GORM with Retry Loop for Docker stability
+	gormDSN := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable", host, user, password, dbName, port)
 
-	if err != nil {
-		log.Fatal("Failed to connect to the database via GORM:", err)
+	var db *gorm.DB
+	maxDbRetries := 5
+	for i := 1; i <= maxDbRetries; i++ {
+		db, err = gorm.Open(postgres.Open(gormDSN), &gorm.Config{})
+		if err == nil {
+			fmt.Printf("Connected to '%s' via GORM successfully\n", dbName)
+			break
+		}
+		fmt.Printf("Failed to connect to GORM (attempt %d/%d): %v. Retrying in 3 seconds...\n", i, maxDbRetries, err)
+
+		if i == maxDbRetries {
+			log.Fatal("Failed to connect to the database via GORM after multiple attempts:", err)
+		}
+		time.Sleep(3 * time.Second)
 	}
-	fmt.Println("Connected to 'todo_gorm_db' via GORM")
 
 	// 4. AutoMigrate
 	err = db.AutoMigrate(&models.User{}, &models.Todo{})
@@ -70,12 +88,18 @@ func ConnectDB() *gorm.DB {
 	return db
 }
 
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
 func SeedAdmin(db *gorm.DB) {
 	var count int64
 	db.Model(&models.User{}).Where("username = ?", "admin").Count(&count)
 
 	if count == 0 {
-
 		hashedPassword, _ := utils.HashPassword("admin123")
 		adminUser := models.User{
 			Username: "admin",
