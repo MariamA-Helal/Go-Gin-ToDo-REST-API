@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"example/ToDo/models"
@@ -39,6 +40,11 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 
 	if err := c.BindJSON(&input); err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	if strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Username and password cannot be empty or just spaces"})
 		return
 	}
 
@@ -92,14 +98,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	repoImpl, ok := h.Repo.(*repository.UserRepositoryImpl)
-	if !ok {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access repository"})
+	if strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Username and password cannot be empty or just spaces"})
 		return
 	}
 
-	var user models.User
-	if err := repoImpl.DB.Where("username = ?", input.Username).Take(&user).Error; err != nil {
+	user, err := h.Repo.GetUserByUsername(input.Username)
+	if err != nil {
 		c.IndentedJSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 		return
 	}

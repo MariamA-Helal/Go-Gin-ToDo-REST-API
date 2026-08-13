@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"example/ToDo/models"
-	"example/ToDo/repository"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // AdminTodoResponse
@@ -60,26 +60,30 @@ func NewTodoHandler(repo TodoRepository) *TodoHandler {
 // @Success      200       {object}  interface{}
 // @Router       /todos [get]
 func (h *TodoHandler) GetTodos(c *gin.Context) {
-
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	scope := c.Query("scope")
 
 	limit, offset := 10, 0
 
-	var todos []models.Todo
-	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
-	if !ok {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
+	if limitQuery := c.Query("limit"); limitQuery != "" {
+		if parsedLimit, err := strconv.Atoi(limitQuery); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+			if limit > 100 {
+				limit = 100 // Clamping
+			}
+		}
 	}
 
-	dbQuery := repoImpl.DB.Preload("User").Limit(limit).Offset(offset)
+	if pageQuery := c.Query("page"); pageQuery != "" {
+		if parsedPage, err := strconv.Atoi(pageQuery); err == nil && parsedPage > 0 {
+			offset = (parsedPage - 1) * limit
+		}
+	}
+	todos := h.Repo.GetTodos(limit, offset)
 
 	if userRole.(string) == "admin" && scope != "personal" {
-		dbQuery.Find(&todos)
-
-		var responses []AdminTodoResponse
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
 		for _, t := range todos {
 			responses = append(responses, AdminTodoResponse{
 				ID:            t.ID,
@@ -93,37 +97,43 @@ func (h *TodoHandler) GetTodos(c *gin.Context) {
 			})
 		}
 		c.IndentedJSON(http.StatusOK, responses)
-	} else {
-		dbQuery.Where("user_id = ?", userID.(uint)).Find(&todos)
+		return
+	}
 
-		if userRole.(string) == "admin" {
-			var responses []AdminTodoResponse
-			for _, t := range todos {
-				responses = append(responses, AdminTodoResponse{
-					ID:            t.ID,
-					OwnerID:       t.UserID,
-					OwnerUsername: t.User.Username,
-					TaskID:        t.UserTaskID,
-					Title:         t.Title,
-					Category:      t.Category,
-					Priority:      t.Priority,
-					Completed:     t.Completed,
-				})
-			}
-			c.IndentedJSON(http.StatusOK, responses)
-		} else {
-			var responses []UserTodoResponse
-			for _, t := range todos {
-				responses = append(responses, UserTodoResponse{
-					TaskID:    t.UserTaskID,
-					Title:     t.Title,
-					Category:  t.Category,
-					Priority:  t.Priority,
-					Completed: t.Completed,
-				})
-			}
-			c.IndentedJSON(http.StatusOK, responses)
+	var personalTodos []models.Todo
+	for _, t := range todos {
+		if t.UserID == userID.(uint) {
+			personalTodos = append(personalTodos, t)
 		}
+	}
+
+	if userRole.(string) == "admin" {
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, AdminTodoResponse{
+				ID:            t.ID,
+				OwnerID:       t.UserID,
+				OwnerUsername: t.User.Username,
+				TaskID:        t.UserTaskID,
+				Title:         t.Title,
+				Category:      t.Category,
+				Priority:      t.Priority,
+				Completed:     t.Completed,
+			})
+		}
+		c.IndentedJSON(http.StatusOK, responses)
+	} else {
+		var responses []UserTodoResponse = []UserTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, UserTodoResponse{
+				TaskID:    t.UserTaskID,
+				Title:     t.Title,
+				Category:  t.Category,
+				Priority:  t.Priority,
+				Completed: t.Completed,
+			})
+		}
+		c.IndentedJSON(http.StatusOK, responses)
 	}
 }
 
@@ -218,22 +228,13 @@ func (h *TodoHandler) GetTodosByCategory(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	scope := c.Query("scope")
 
-	// 3. Setup DB Query (Preload User for Admin view)
-	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
-	if !ok {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
-	}
-
-	var todos []models.Todo
-	query := repoImpl.DB.Preload("User").Where("category = ?", category)
+	// 3. Fetch from Repo directly (بدل dbQuery)
+	todos := h.Repo.GetTodosByCategory(category)
 
 	// 4. Role-based Logic & DTO Mapping
 	if role == "admin" && scope != "personal" {
 		// Admin sees all in category
-		query.Find(&todos)
-
-		var responses []AdminTodoResponse
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
 		for _, t := range todos {
 			responses = append(responses, AdminTodoResponse{
 				ID:            t.ID,
@@ -247,39 +248,43 @@ func (h *TodoHandler) GetTodosByCategory(c *gin.Context) {
 			})
 		}
 		c.JSON(http.StatusOK, responses)
+		return
+	}
 
-	} else {
-		// User sees only their own in category (or Admin requesting personal)
-		query.Where("user_id = ?", userID.(uint)).Find(&todos)
-
-		if role == "admin" {
-			var responses []AdminTodoResponse
-			for _, t := range todos {
-				responses = append(responses, AdminTodoResponse{
-					ID:            t.ID,
-					OwnerID:       t.UserID,
-					OwnerUsername: t.User.Username,
-					TaskID:        t.UserTaskID,
-					Title:         t.Title,
-					Category:      t.Category,
-					Priority:      t.Priority,
-					Completed:     t.Completed,
-				})
-			}
-			c.JSON(http.StatusOK, responses)
-		} else {
-			var responses []UserTodoResponse
-			for _, t := range todos {
-				responses = append(responses, UserTodoResponse{
-					TaskID:    t.UserTaskID,
-					Title:     t.Title,
-					Category:  t.Category,
-					Priority:  t.Priority,
-					Completed: t.Completed,
-				})
-			}
-			c.JSON(http.StatusOK, responses)
+	var personalTodos []models.Todo
+	for _, t := range todos {
+		if t.UserID == userID.(uint) {
+			personalTodos = append(personalTodos, t)
 		}
+	}
+
+	if role == "admin" {
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, AdminTodoResponse{
+				ID:            t.ID,
+				OwnerID:       t.UserID,
+				OwnerUsername: t.User.Username,
+				TaskID:        t.UserTaskID,
+				Title:         t.Title,
+				Category:      t.Category,
+				Priority:      t.Priority,
+				Completed:     t.Completed,
+			})
+		}
+		c.JSON(http.StatusOK, responses)
+	} else {
+		var responses []UserTodoResponse = []UserTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, UserTodoResponse{
+				TaskID:    t.UserTaskID,
+				Title:     t.Title,
+				Category:  t.Category,
+				Priority:  t.Priority,
+				Completed: t.Completed,
+			})
+		}
+		c.JSON(http.StatusOK, responses)
 	}
 }
 
@@ -297,29 +302,26 @@ func (h *TodoHandler) GetTodosByCategory(c *gin.Context) {
 // @Router       /todos/status/{status} [get]
 func (h *TodoHandler) GetTodosByStatus(c *gin.Context) {
 	statusStr := c.Param("status")
-	statusBool, err := strconv.ParseBool(statusStr)
+
+	// 1. Validation First
+	_, err := strconv.ParseBool(statusStr)
 	if err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Status must be a boolean (true or false)"})
 		return
 	}
 
+	// 2. Auth Context
 	role, _ := c.Get("role")
 	userID, _ := c.Get("user_id")
 	scope := c.Query("scope")
 
-	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
-	if !ok {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
-	}
+	// 3. Fetch from Repo directly (بدون استخدام DB Query)
+	todos := h.Repo.GetTodosByStatus(statusStr)
 
-	var todos []models.Todo
-	query := repoImpl.DB.Preload("User").Where("completed = ?", statusBool)
-
+	// 4. Role-based Logic & DTO Mapping
 	if role == "admin" && scope != "personal" {
-		query.Find(&todos)
-
-		var responses []AdminTodoResponse
+		// Admin sees all
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
 		for _, t := range todos {
 			responses = append(responses, AdminTodoResponse{
 				ID:            t.ID,
@@ -333,38 +335,43 @@ func (h *TodoHandler) GetTodosByStatus(c *gin.Context) {
 			})
 		}
 		c.JSON(http.StatusOK, responses)
+		return
+	}
 
-	} else {
-		query.Where("user_id = ?", userID.(uint)).Find(&todos)
-
-		if role == "admin" {
-			var responses []AdminTodoResponse
-			for _, t := range todos {
-				responses = append(responses, AdminTodoResponse{
-					ID:            t.ID,
-					OwnerID:       t.UserID,
-					OwnerUsername: t.User.Username,
-					TaskID:        t.UserTaskID,
-					Title:         t.Title,
-					Category:      t.Category,
-					Priority:      t.Priority,
-					Completed:     t.Completed,
-				})
-			}
-			c.JSON(http.StatusOK, responses)
-		} else {
-			var responses []UserTodoResponse
-			for _, t := range todos {
-				responses = append(responses, UserTodoResponse{
-					TaskID:    t.UserTaskID,
-					Title:     t.Title,
-					Category:  t.Category,
-					Priority:  t.Priority,
-					Completed: t.Completed,
-				})
-			}
-			c.JSON(http.StatusOK, responses)
+	var personalTodos []models.Todo
+	for _, t := range todos {
+		if t.UserID == userID.(uint) {
+			personalTodos = append(personalTodos, t)
 		}
+	}
+
+	if role == "admin" {
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, AdminTodoResponse{
+				ID:            t.ID,
+				OwnerID:       t.UserID,
+				OwnerUsername: t.User.Username,
+				TaskID:        t.UserTaskID,
+				Title:         t.Title,
+				Category:      t.Category,
+				Priority:      t.Priority,
+				Completed:     t.Completed,
+			})
+		}
+		c.JSON(http.StatusOK, responses)
+	} else {
+		var responses []UserTodoResponse = []UserTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, UserTodoResponse{
+				TaskID:    t.UserTaskID,
+				Title:     t.Title,
+				Category:  t.Category,
+				Priority:  t.Priority,
+				Completed: t.Completed,
+			})
+		}
+		c.JSON(http.StatusOK, responses)
 	}
 }
 
@@ -382,6 +389,8 @@ func (h *TodoHandler) GetTodosByStatus(c *gin.Context) {
 // @Router       /todos/search [get]
 func (h *TodoHandler) GetTodosBySearch(c *gin.Context) {
 	query := c.Query("q")
+
+	// 1. Validations First
 	if strings.TrimSpace(query) == "" {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Search query cannot be empty"})
 		return
@@ -391,25 +400,17 @@ func (h *TodoHandler) GetTodosBySearch(c *gin.Context) {
 		return
 	}
 
+	// 2. Auth Context
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	scope := c.Query("scope")
 
-	var todos []models.Todo
+	// 3. Fetch from Repo directly
+	todos := h.Repo.GetTodosBySearch(query)
 
-	repoImpl, ok := h.Repo.(*repository.TodoRepositoryImpl)
-	if !ok {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
-	}
-
-	searchQuery := "%" + query + "%"
-	dbQuery := repoImpl.DB.Preload("User")
-
+	// 4. Role-based Logic & DTO Mapping
 	if userRole.(string) == "admin" && scope != "personal" {
-		dbQuery.Where("title ILIKE ? OR category ILIKE ?", searchQuery, searchQuery).Find(&todos)
-
-		var responses []AdminTodoResponse
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
 		for _, t := range todos {
 			responses = append(responses, AdminTodoResponse{
 				ID:            t.ID,
@@ -423,37 +424,43 @@ func (h *TodoHandler) GetTodosBySearch(c *gin.Context) {
 			})
 		}
 		c.IndentedJSON(http.StatusOK, responses)
-	} else {
-		dbQuery.Where("user_id = ? AND (title ILIKE ? OR category ILIKE ?)", userID.(uint), searchQuery, searchQuery).Find(&todos)
+		return
+	}
 
-		if userRole.(string) == "admin" {
-			var responses []AdminTodoResponse
-			for _, t := range todos {
-				responses = append(responses, AdminTodoResponse{
-					ID:            t.ID,
-					OwnerID:       t.UserID,
-					OwnerUsername: t.User.Username,
-					TaskID:        t.UserTaskID,
-					Title:         t.Title,
-					Category:      t.Category,
-					Priority:      t.Priority,
-					Completed:     t.Completed,
-				})
-			}
-			c.IndentedJSON(http.StatusOK, responses)
-		} else {
-			var responses []UserTodoResponse
-			for _, t := range todos {
-				responses = append(responses, UserTodoResponse{
-					TaskID:    t.UserTaskID,
-					Title:     t.Title,
-					Category:  t.Category,
-					Priority:  t.Priority,
-					Completed: t.Completed,
-				})
-			}
-			c.IndentedJSON(http.StatusOK, responses)
+	var personalTodos []models.Todo
+	for _, t := range todos {
+		if t.UserID == userID.(uint) {
+			personalTodos = append(personalTodos, t)
 		}
+	}
+
+	if userRole.(string) == "admin" {
+		var responses []AdminTodoResponse = []AdminTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, AdminTodoResponse{
+				ID:            t.ID,
+				OwnerID:       t.UserID,
+				OwnerUsername: t.User.Username,
+				TaskID:        t.UserTaskID,
+				Title:         t.Title,
+				Category:      t.Category,
+				Priority:      t.Priority,
+				Completed:     t.Completed,
+			})
+		}
+		c.IndentedJSON(http.StatusOK, responses)
+	} else {
+		var responses []UserTodoResponse = []UserTodoResponse{}
+		for _, t := range personalTodos {
+			responses = append(responses, UserTodoResponse{
+				TaskID:    t.UserTaskID,
+				Title:     t.Title,
+				Category:  t.Category,
+				Priority:  t.Priority,
+				Completed: t.Completed,
+			})
+		}
+		c.IndentedJSON(http.StatusOK, responses)
 	}
 }
 
@@ -761,7 +768,11 @@ func (h *TodoHandler) UpdateTodosByCategory(c *gin.Context) {
 
 	err := h.Repo.UpdateTodosByCategory(userID.(uint), category, completed)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -923,7 +934,11 @@ func (h *TodoHandler) DeleteTodosByCategory(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
