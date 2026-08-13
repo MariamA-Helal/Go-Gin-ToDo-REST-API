@@ -103,3 +103,133 @@ func TestLogin_InvalidPassword(t *testing.T) {
 		t.Errorf("Expected 401 Unauthorized, got %d", w.Code)
 	}
 }
+
+// ---- Missing Signup Edge Cases ----
+
+func TestSignup_Failures(t *testing.T) {
+	tests := []struct {
+		name           string
+		reqBody        []byte
+		expectedStatus int
+	}{
+		{
+			name:           "Missing Password",
+			reqBody:        []byte(`{"username": "mariam"}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Missing Username",
+			reqBody:        []byte(`{"password": "password123"}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Empty Fields",
+			reqBody:        []byte(`{"username": "", "password": ""}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Malformed JSON",
+			reqBody:        []byte(`{"username": "mariam", "password": "password123"`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Empty Request Body (No JSON)",
+			reqBody:        nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Whitespace Only Fields",
+			reqBody:        []byte(`{"username": "   ", "password": "   "}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := setupAuthTestRouter()
+			req, _ := http.NewRequest("POST", "/signup", bytes.NewBuffer(tc.reqBody))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.expectedStatus {
+				t.Errorf("Expected %d for %s, got %d", tc.expectedStatus, tc.name, w.Code)
+			}
+		})
+	}
+}
+
+// ---- Missing Login Edge Cases ----
+
+func TestLogin_Failures(t *testing.T) {
+	tests := []struct {
+		name           string
+		reqBody        []byte
+		expectedStatus int
+	}{
+		// 1.Validations
+		{
+			name:           "Missing Password",
+			reqBody:        []byte(`{"username": "mariam"}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Missing Username",
+			reqBody:        []byte(`{"password": "password123"}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Empty Fields",
+			reqBody:        []byte(`{"username": "", "password": ""}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Malformed JSON",
+			reqBody:        []byte(`{"username": "mariam", "password": "password123"`),
+			expectedStatus: http.StatusBadRequest,
+		},
+
+		// 2.(Security & Authentication)
+		{
+			name:           "Unregistered User (Not Found)",
+			reqBody:        []byte(`{"username": "ghost_user", "password": "password123"}`),
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Wrong Password",
+			reqBody:        []byte(`{"username": "mariam", "password": "wrongpassword"}`),
+			expectedStatus: http.StatusUnauthorized,
+		},
+
+		{
+			name:           "Empty Request Body (No JSON)",
+			reqBody:        nil,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Whitespace Only Fields",
+			reqBody:        []byte(`{"username": "   ", "password": "   "}`),
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, mockRepo := setupAuthTestRouter()
+
+			hashedPassword, _ := utils.HashPassword("password123")
+			mockRepo.users["mariam"] = &models.User{
+				Username: "mariam",
+				Password: hashedPassword,
+				Role:     "user",
+			}
+
+			req, _ := http.NewRequest("POST", "/login", bytes.NewBuffer(tc.reqBody))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.expectedStatus {
+				t.Errorf("Expected %d for %s, got %d", tc.expectedStatus, tc.name, w.Code)
+			}
+		})
+	}
+}

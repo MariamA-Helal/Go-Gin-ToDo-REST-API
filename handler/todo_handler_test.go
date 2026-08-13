@@ -76,7 +76,7 @@ func TestGetTodos(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			// Append the query string to the URL
 			w := performRequest(router, "GET", "/todos"+tc.query, nil)
@@ -130,7 +130,7 @@ func TestGetTodoByID(t *testing.T) {
 			tc.mockSetup(mockRepo)
 
 			// 2. Initialize the router with the mock repo
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			// 3. Execute the request by appending the ID to the URL
 			w := performRequest(router, "GET", "/todos/"+tc.todoID, nil)
@@ -196,7 +196,7 @@ func TestGetTodosByCategory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			w := performRequest(router, "GET", "/todos/category/"+tc.category, nil)
 
@@ -252,7 +252,7 @@ func TestGetTodosByStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			w := performRequest(router, "GET", "/todos/status/"+tc.status, nil)
 
@@ -300,7 +300,7 @@ func TestGetTodosBySearch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			// Notice we append the query directly to the URL
 			w := performRequest(router, "GET", "/todos/search"+tc.searchQuery, nil)
@@ -319,108 +319,125 @@ func TestCreateTodo(t *testing.T) {
 	tests := []struct {
 		name           string
 		reqBody        interface{}
+		userID         uint
+		role           string
 		mockSetup      func(m *MockTodoRepository)
 		expectedStatus int
 	}{
-		// 1. Good Paths
+		// 1. RBAC & Good Cases
 		{
-			name:           "Good Case: Valid Full Data",
-			reqBody:        models.Todo{Title: "Learn JWT", Category: "Study", Priority: "High", DueDate: &futureDate},
-			mockSetup:      func(m *MockTodoRepository) { m.On("CreateTodo", mock.AnythingOfType("*models.Todo")).Return(nil) },
-			expectedStatus: http.StatusCreated,
-		},
-		{
-			name:           "Good Case: Valid Data Without Due Date",
-			reqBody:        models.Todo{Title: "Learn Go", Category: "Study", Priority: "Medium"},
-			mockSetup:      func(m *MockTodoRepository) { m.On("CreateTodo", mock.AnythingOfType("*models.Todo")).Return(nil) },
-			expectedStatus: http.StatusCreated,
-		},
-
-		// 2. Missing Required Fields
-		{
-			name:           "Bad Case: Missing Required Title",
-			reqBody:        models.Todo{Category: "Study", Priority: "Low"},
-			mockSetup:      func(m *MockTodoRepository) {},
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Bad Case: Missing Required Category",
-			reqBody:        models.Todo{Title: "Task", Priority: "Low"},
-			mockSetup:      func(m *MockTodoRepository) {},
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name: "Bad Case: Missing Required Priority",
-			reqBody: models.Todo{
-				Title:    "Valid Title",
-				Category: "Work",
-				// Priority is missing here
-			},
+			name:    "Good Case: Normal User Creates Own Task",
+			reqBody: map[string]interface{}{"title": "Learn Go", "category": "Study", "priority": "High", "due_date": futureDate},
+			userID:  1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				// DB won't be called because the handler should reject the request first
+				m.On("CountUserTodos", uint(1)).Return(int64(0))
+				m.On("CreateTodo", mock.AnythingOfType("*models.Todo")).Return(nil)
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name:    "Good Case: Admin Assigns Task to Another User",
+			reqBody: map[string]interface{}{"title": "Fix Bug", "category": "Work", "priority": "High", "target_username": "seif"},
+			userID:  99, role: "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetUserIDByUsername", "seif").Return(uint(2), nil)
+				m.On("CountUserTodos", uint(2)).Return(int64(0))
+				m.On("CreateTodo", mock.AnythingOfType("*models.Todo")).Return(nil)
+			},
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name:    "Bad Case: Normal User Tries to Assign Task",
+			reqBody: map[string]interface{}{"title": "Sneaky Task", "category": "Work", "priority": "High", "target_username": "reham"},
+			userID:  1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
+			expectedStatus: http.StatusForbidden,
 		},
 
-		// 3. Edge Cases
+		// 2. Original Validations & Edge Cases (Preserved)
 		{
-			name:           "Edge Case: Title is a single character",
-			reqBody:        models.Todo{Title: "A", Category: "Study", Priority: "Low"},
+			name:    "Bad Case: Missing Required Title",
+			reqBody: map[string]interface{}{"category": "Study", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Title >= 10 words",
-			reqBody:        models.Todo{Title: "one two three four five six seven eight nine ten", Category: "Study", Priority: "Low"},
+			name:    "Bad Case: Missing Required Category",
+			reqBody: map[string]interface{}{"title": "Task", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Title is only numbers",
-			reqBody:        models.Todo{Title: "12345", Category: "Study", Priority: "Low"},
+			name:    "Bad Case: Missing Required Priority",
+			reqBody: map[string]interface{}{"title": "Valid Title", "category": "Work"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Category is a single character",
-			reqBody:        models.Todo{Title: "Valid Title", Category: "S", Priority: "Low"},
+			name:    "Edge Case: Title is a single character",
+			reqBody: map[string]interface{}{"title": "A", "category": "Study", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Category > 3 words",
-			reqBody:        models.Todo{Title: "Valid Title", Category: "my very long category", Priority: "Low"},
+			name:    "Edge Case: Title >= 10 words",
+			reqBody: map[string]interface{}{"title": "one two three four five six seven eight nine ten", "category": "Study", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Category is only numbers",
-			reqBody:        models.Todo{Title: "Valid Title", Category: "999", Priority: "Low"},
+			name:    "Edge Case: Title is only numbers",
+			reqBody: map[string]interface{}{"title": "12345", "category": "Study", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Bad Case: Invalid Priority",
-			reqBody:        models.Todo{Title: "Fix Bugs", Category: "Work", Priority: "Urgent"},
+			name:    "Edge Case: Category is a single character",
+			reqBody: map[string]interface{}{"title": "Valid", "category": "S", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Past Due Date",
-			reqBody:        models.Todo{Title: "Time Travel", Category: "Personal", Priority: "Medium", DueDate: &pastDate},
+			name:    "Edge Case: Category > 3 words",
+			reqBody: map[string]interface{}{"title": "Valid", "category": "my very long category", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Edge Case: Malformed JSON",
-			reqBody:        `{ "title": "broken json" `,
+			name:    "Edge Case: Category is only numbers",
+			reqBody: map[string]interface{}{"title": "Valid", "category": "999", "priority": "Low"},
+			userID:  1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:    "Bad Case: Invalid Priority",
+			reqBody: map[string]interface{}{"title": "Valid", "category": "Work", "priority": "Urgent"},
+			userID:  1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:    "Edge Case: Past Due Date",
+			reqBody: map[string]interface{}{"title": "Time Travel", "category": "Personal", "priority": "Medium", "due_date": pastDate},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:    "DB Error: Internal Server Error",
-			reqBody: models.Todo{Title: "Save Me", Category: "Work", Priority: "Low"},
+			reqBody: map[string]interface{}{"title": "Save Me", "category": "Work", "priority": "Low"},
+			userID:  1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
+				m.On("CountUserTodos", uint(1)).Return(int64(0))
 				m.On("CreateTodo", mock.AnythingOfType("*models.Todo")).Return(gorm.ErrInvalidDB)
 			},
 			expectedStatus: http.StatusInternalServerError,
@@ -431,7 +448,7 @@ func TestCreateTodo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, tc.userID, tc.role)
 			w := performRequest(router, "POST", "/todos", tc.reqBody)
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
@@ -445,40 +462,81 @@ func TestEditTodo(t *testing.T) {
 		name           string
 		todoID         string
 		reqBody        interface{}
+		userID         uint   // Dynamic Auth
+		role           string // Dynamic Auth
 		mockSetup      func(m *MockTodoRepository)
 		expectedStatus int
 	}{
+		// 1. RBAC & Security Cases
 		{
-			name:    "Good Case: Valid Edit",
+			name:    "Good Case: User Edits Own Task",
 			todoID:  "1",
-			reqBody: models.Todo{Title: "Updated Title", Category: "Work", Priority: "High"},
+			reqBody: map[string]interface{}{"title": "Updated Title", "category": "Work", "priority": "High", "completed": true},
+			userID:  1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, Title: "Old", Completed: false}, nil)
+				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, UserID: 1, Completed: false}, nil)
 				m.On("EditTodo", mock.AnythingOfType("*models.Todo")).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name:    "Good Case: Admin Edits Someone Else's Task (Title only, no status change)",
+			todoID:  "2",
+			reqBody: map[string]interface{}{"title": "Admin Fix", "category": "Work", "priority": "High", "completed": false},
+			userID:  99, role: "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				// Task belongs to user 1, but Admin is user 99
+				m.On("GetTodoByID", 2).Return(models.Todo{ID: 2, UserID: 1, Completed: false}, nil)
+				m.On("EditTodo", mock.AnythingOfType("*models.Todo")).Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:    "Bad Case: Admin Tries to Change Status of Someone Else's Task",
+			todoID:  "2",
+			reqBody: map[string]interface{}{"title": "Admin Fix", "category": "Work", "priority": "High", "completed": true}, // Trying to mark as true
+			userID:  99, role: "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetTodoByID", 2).Return(models.Todo{ID: 2, UserID: 1, Completed: false}, nil)
+				// Should stop here and return 403, DB update shouldn't be called
+			},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:    "Bad Case: User Tries to Edit Someone Else's Task",
+			todoID:  "2",
+			reqBody: map[string]interface{}{"title": "Hacked", "category": "Work", "priority": "High"},
+			userID:  2, role: "user", // User 2 trying to hack User 1's task
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetTodoByID", 2).Return(models.Todo{ID: 2, UserID: 1}, nil)
+			},
+			expectedStatus: http.StatusForbidden,
+		},
+
+		// 2. Original Edge Cases & Validations (Preserved)
+		{
 			name:    "Edge Case: ID Not Found",
 			todoID:  "999",
-			reqBody: models.Todo{Title: "Updated Title", Category: "Work", Priority: "High"},
+			reqBody: map[string]interface{}{"title": "Updated Title", "category": "Work", "priority": "High"},
+			userID:  1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				// هنا الـ Get مش هيلاقيها
 				m.On("GetTodoByID", 999).Return(models.Todo{}, gorm.ErrRecordNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
 		{
-			name:           "Bad Case: Invalid Input Data (Empty Title)",
-			todoID:         "1",
-			reqBody:        models.Todo{Category: "Work"},
+			name:    "Bad Case: Invalid Input Data (Empty Title)",
+			todoID:  "1",
+			reqBody: map[string]interface{}{"category": "Work"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Bad Case: Invalid Characters in ID",
-			todoID:         "ABC",
-			reqBody:        models.Todo{Title: "Updated Title", Category: "Work", Priority: "High"},
+			name:    "Bad Case: Invalid Characters in ID",
+			todoID:  "ABC",
+			reqBody: map[string]interface{}{"title": "Updated Title", "category": "Work", "priority": "High"},
+			userID:  1, role: "user",
 			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -488,7 +546,7 @@ func TestEditTodo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, tc.userID, tc.role)
 			w := performRequest(router, "PUT", "/todos/"+tc.todoID, tc.reqBody)
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
@@ -510,8 +568,7 @@ func TestUpdateTodoStatus(t *testing.T) {
 			todoID:  "1",
 			reqBody: map[string]interface{}{"completed": true},
 			mockSetup: func(m *MockTodoRepository) {
-				// Mock الـ Get
-				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, Completed: false}, nil)
+				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, UserID: 1, Completed: false}, nil)
 				m.On("UpdateTodoStatus", mock.AnythingOfType("*models.Todo")).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
@@ -521,8 +578,7 @@ func TestUpdateTodoStatus(t *testing.T) {
 			todoID:  "1",
 			reqBody: map[string]interface{}{"completed": false},
 			mockSetup: func(m *MockTodoRepository) {
-				// Mock الـ Get
-				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, Completed: true}, nil)
+				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, UserID: 1, Completed: true}, nil)
 				m.On("UpdateTodoStatus", mock.AnythingOfType("*models.Todo")).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
@@ -572,7 +628,7 @@ func TestUpdateTodoStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 			w := performRequest(router, "PATCH", "/todos/"+tc.todoID+"/status", tc.reqBody)
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
@@ -585,39 +641,66 @@ func TestDeleteTodo(t *testing.T) {
 	tests := []struct {
 		name           string
 		todoID         string
+		userID         uint   // Dynamic Auth
+		role           string // Dynamic Auth
 		mockSetup      func(m *MockTodoRepository)
 		expectedStatus int
 	}{
+		// 1. RBAC & Security Cases
 		{
-			name:   "Good Case: Valid Deletion",
+			name:   "Good Case: User Deletes Own Task",
 			todoID: "1",
+			userID: 1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetTodoByID", 1).Return(models.Todo{ID: 1, UserID: 1}, nil)
 				m.On("DeleteTodo", 1).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name:   "Good Case: Admin Deletes Someone Else's Task",
+			todoID: "2",
+			userID: 99, role: "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetTodoByID", 2).Return(models.Todo{ID: 2, UserID: 1}, nil)
+				m.On("DeleteTodo", 2).Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:   "Bad Case: User Tries to Delete Someone Else's Task",
+			todoID: "2",
+			userID: 2, role: "user",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetTodoByID", 2).Return(models.Todo{ID: 2, UserID: 1}, nil)
+			},
+			expectedStatus: http.StatusForbidden,
+		},
+
+		// 2. Original Edge Cases & Validations (Preserved)
+		{
 			name:   "Edge Case: Delete Non-existent ID",
 			todoID: "999",
+			userID: 1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("DeleteTodo", 999).Return(gorm.ErrRecordNotFound)
+				m.On("GetTodoByID", 999).Return(models.Todo{}, gorm.ErrRecordNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:   "Edge Case: Delete Already Deleted Todo",
-			todoID: "2", // Assuming ID 2 was previously deleted
+			todoID: "3",
+			userID: 1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				// The database treats a deleted record as not found
-				m.On("DeleteTodo", 2).Return(gorm.ErrRecordNotFound)
+				m.On("GetTodoByID", 3).Return(models.Todo{}, gorm.ErrRecordNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:   "Bad Case: Invalid Characters in ID",
-			todoID: "ABC", // Sending string instead of int
+			todoID: "ABC",
+			userID: 1, role: "user",
 			mockSetup: func(m *MockTodoRepository) {
-				// Handler should reject this before calling the DB
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -627,8 +710,11 @@ func TestDeleteTodo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+
+			router := setupTestEngine(mockRepo, tc.userID, tc.role)
+
 			w := performRequest(router, "DELETE", "/todos/"+tc.todoID, nil)
+
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
 		})
@@ -639,17 +725,75 @@ func TestDeleteTodo(t *testing.T) {
 func TestDeleteAllTodos(t *testing.T) {
 	tests := []struct {
 		name           string
-		reqBody        interface{} // To ensure we send nil
+		queryString    string // To test target_username=...
+		userID         uint   // Dynamic User ID
+		role           string // "admin" or "user"
 		mockSetup      func(m *MockTodoRepository)
 		expectedStatus int
 	}{
+		// 1. Admin Cases
 		{
-			name:    "Good Case: Delete All Todos Successfully",
-			reqBody: nil, // Ensuring the body is empty
+			name:        "Admin Case: Delete All Todos Globally",
+			queryString: "",
+			userID:      99,
+			role:        "admin",
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("DeleteAllTodos").Return(nil)
+				m.On("DeleteAllTodosGlobal").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Admin Case: Delete Personal Todos Only",
+			queryString: "?scope=personal",
+			userID:      99,
+			role:        "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("DeleteUserTodos", uint(99)).Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Admin Case: Delete Specific User Todos",
+			queryString: "?target_username=seif",
+			userID:      99,
+			role:        "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetUserIDByUsername", "seif").Return(uint(2), nil)
+				m.On("DeleteUserTodos", uint(2)).Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+
+		// 2. Normal User Cases
+		{
+			name:        "User Case: Delete Own Todos Successfully",
+			queryString: "",
+			userID:      1,
+			role:        "user",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("DeleteUserTodos", uint(1)).Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Bad Case (User): Tries to use Admin Filters",
+			queryString: "?scope=personal",
+			userID:      1,
+			role:        "user",
+			mockSetup: func(m *MockTodoRepository) {
+				// No DB calls expected due to RBAC block
+			},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:        "Bad Case (Admin): Target Username Not Found",
+			queryString: "?target_username=ghost",
+			userID:      99,
+			role:        "admin",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("GetUserIDByUsername", "ghost").Return(uint(0), gorm.ErrRecordNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 
@@ -658,10 +802,9 @@ func TestDeleteAllTodos(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
 
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, tc.userID, tc.role)
 
-			// Passing exactly "/todos" with no extra parameters
-			w := performRequest(router, "DELETE", "/todos", tc.reqBody)
+			w := performRequest(router, "DELETE", "/todos"+tc.queryString, nil)
 
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
@@ -684,7 +827,7 @@ func TestUpdateTodosByCategory(t *testing.T) {
 			category: "Work Tasks",
 			reqBody:  map[string]interface{}{"completed": true},
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("UpdateTodosByCategory", "Work Tasks", mock.Anything).Return(nil)
+				m.On("UpdateTodosByCategory", uint(1), "Work Tasks", true).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -693,7 +836,7 @@ func TestUpdateTodosByCategory(t *testing.T) {
 			category: "Study",
 			reqBody:  map[string]interface{}{"completed": false},
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("UpdateTodosByCategory", "Study", mock.Anything).Return(nil)
+				m.On("UpdateTodosByCategory", uint(1), "Study", false).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -704,7 +847,7 @@ func TestUpdateTodosByCategory(t *testing.T) {
 			category: "Unknown",
 			reqBody:  map[string]interface{}{"completed": true},
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("UpdateTodosByCategory", "Unknown", mock.Anything).Return(gorm.ErrRecordNotFound)
+				m.On("UpdateTodosByCategory", uint(1), "Unknown", true).Return(gorm.ErrRecordNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
@@ -750,7 +893,7 @@ func TestUpdateTodosByCategory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
+			router := setupTestEngine(mockRepo, 1, "admin")
 
 			w := performRequest(router, "PUT", "/todos/category/"+tc.category, tc.reqBody)
 
@@ -765,52 +908,86 @@ func TestDeleteTodosByCategory(t *testing.T) {
 	tests := []struct {
 		name           string
 		category       string
+		queryString    string // Dynamic query string
+		userID         uint
+		role           string
 		mockSetup      func(m *MockTodoRepository)
 		expectedStatus int
 	}{
-		// 1. Good Cases
+		// 1. RBAC & Admin Scopes
 		{
-			name:     "Good Case: Valid Category Deletion",
-			category: "Personal",
+			name:        "Admin Case: Valid Category Deletion (Global)",
+			category:    "Personal",
+			queryString: "",
+			userID:      99, role: "admin",
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("DeleteTodosByCategory", "Personal").Return(nil)
+				m.On("DeleteCategoryGlobal", "Personal").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
-
-		// 2. Edge Cases (Not Found / Already Deleted)
 		{
-			name:     "Edge Case: Delete Non-existent Category (Or already deleted)",
-			category: "Ghost Category",
+			name:        "Admin Case: Delete Category for Specific User",
+			category:    "Work",
+			queryString: "?target_username=reham",
+			userID:      99, role: "admin",
 			mockSetup: func(m *MockTodoRepository) {
-				m.On("DeleteTodosByCategory", "Ghost Category").Return(gorm.ErrRecordNotFound)
+				m.On("GetUserIDByUsername", "reham").Return(uint(2), nil)
+				m.On("DeleteCategoryForUser", uint(2), "Work").Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "User Case: Delete Own Category Successfully",
+			category:    "Study",
+			queryString: "",
+			userID:      1, role: "user",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("DeleteCategoryForUser", uint(1), "Study").Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Bad Case: User Tries to Use Admin Filters",
+			category:    "Study",
+			queryString: "?scope=personal",
+			userID:      1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
+			expectedStatus: http.StatusForbidden,
+		},
+
+		// 2. Original Edge Cases & Validations (Preserved)
+		{
+			name:        "Edge Case: Delete Non-existent Category",
+			category:    "GhostCategory",
+			queryString: "",
+			userID:      1, role: "user",
+			mockSetup: func(m *MockTodoRepository) {
+				m.On("DeleteCategoryForUser", uint(1), "GhostCategory").Return(gorm.ErrRecordNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
-
-		// 3. Bad Paths (Validations)
 		{
-			name:     "Bad Case: Category is a single character",
-			category: "X",
-			mockSetup: func(m *MockTodoRepository) {
-				// DB should not be called due to validation
-			},
+			name:        "Bad Case: Category is a single character",
+			category:    "X",
+			queryString: "",
+			userID:      1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "Bad Case: Category > 3 words",
-			category: "one two three four",
-			mockSetup: func(m *MockTodoRepository) {
-				// DB should not be called due to validation
-			},
+			name:        "Bad Case: Category > 3 words",
+			category:    "one two three four",
+			queryString: "",
+			userID:      1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "Bad Case: Category is only numbers",
-			category: "999",
-			mockSetup: func(m *MockTodoRepository) {
-				// DB should not be called due to validation
-			},
+			name:        "Bad Case: Category is only numbers",
+			category:    "999",
+			queryString: "",
+			userID:      1, role: "user",
+			mockSetup:      func(m *MockTodoRepository) {},
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -819,11 +996,8 @@ func TestDeleteTodosByCategory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRepo := new(MockTodoRepository)
 			tc.mockSetup(mockRepo)
-			router := setupTestEngine(mockRepo)
-
-			// Passing nil for body since DELETE does not require one
-			w := performRequest(router, "DELETE", "/todos/category/"+tc.category, nil)
-
+			router := setupTestEngine(mockRepo, tc.userID, tc.role)
+			w := performRequest(router, "DELETE", "/todos/category/"+tc.category+tc.queryString, nil)
 			assert.Equal(t, tc.expectedStatus, w.Code)
 			mockRepo.AssertExpectations(t)
 		})

@@ -55,8 +55,8 @@ func (m *MockTodoRepository) UpdateTodoStatus(todo *models.Todo) error {
 	return args.Error(0)
 }
 
-func (m *MockTodoRepository) UpdateTodosByCategory(category string, updatedData map[string]interface{}) error { // ضفنا error هنا
-	args := m.Called(category, updatedData)
+func (m *MockTodoRepository) UpdateTodosByCategory(userID uint, category string, completed bool) error {
+	args := m.Called(userID, category, completed)
 	return args.Error(0)
 }
 
@@ -71,6 +71,36 @@ func (m *MockTodoRepository) DeleteAllTodos() error {
 }
 
 func (m *MockTodoRepository) DeleteTodosByCategory(category string) error {
+	args := m.Called(category)
+	return args.Error(0)
+}
+
+func (m *MockTodoRepository) GetUserIDByUsername(username string) (uint, error) {
+	args := m.Called(username)
+	return args.Get(0).(uint), args.Error(1)
+}
+
+func (m *MockTodoRepository) CountUserTodos(userID uint) int64 {
+	args := m.Called(userID)
+	return args.Get(0).(int64)
+}
+
+func (m *MockTodoRepository) DeleteUserTodos(userID uint) error {
+	args := m.Called(userID)
+	return args.Error(0)
+}
+
+func (m *MockTodoRepository) DeleteAllTodosGlobal() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockTodoRepository) DeleteCategoryForUser(userID uint, category string) error {
+	args := m.Called(userID, category)
+	return args.Error(0)
+}
+
+func (m *MockTodoRepository) DeleteCategoryGlobal(category string) error {
 	args := m.Called(category)
 	return args.Error(0)
 }

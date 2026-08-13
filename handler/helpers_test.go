@@ -19,13 +19,14 @@ func init() {
 }
 
 // setupTestEngine configures Gin and binds the mock repository
-func setupTestEngine(mockRepo *MockTodoRepository) *gin.Engine {
+func setupTestEngine(mockRepo *MockTodoRepository, userID uint, role string) *gin.Engine {
 	h := NewTodoHandler(mockRepo)
 	router := gin.Default()
 
+	// Dynamic Role and ID values
 	router.Use(func(c *gin.Context) {
-		c.Set("user_id", uint(1))
-		c.Set("role", "admin")
+		c.Set("user_id", userID)
+		c.Set("role", role)
 		c.Next()
 	})
 

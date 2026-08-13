@@ -103,3 +103,25 @@ func TestRole_AdminCanDeleteAnyTodo(t *testing.T) {
 		t.Errorf("Expected 200 OK for Admin deleting any todo, got %d", w.Code)
 	}
 }
+
+func TestJWT_AccessWithMalformedHeader(t *testing.T) {
+	r := setupMiddlewareTestRouter()
+
+	req1, _ := http.NewRequest("GET", "/protected/test", nil)
+	req1.Header.Set("Authorization", "JustTheTokenWithoutBearerPrefix")
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 for missing Bearer prefix, got %d", w1.Code)
+	}
+
+	req2, _ := http.NewRequest("GET", "/protected/test", nil)
+	req2.Header.Set("Authorization", "Bearer ")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 for missing token string, got %d", w2.Code)
+	}
+}
